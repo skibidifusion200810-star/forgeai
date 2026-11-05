@@ -1,6 +1,6 @@
 {
   "name": "forge-ai-roblox",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Local Roblox Studio AI builder with Gemini chat and Claude Desktop MCP bridge",
   "main": "electron/main.cjs",

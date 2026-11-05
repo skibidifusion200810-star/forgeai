@@ -134,3 +134,12 @@ FORGE AI now includes a **real in-app Google Gemini chat**. It does not require 
 ## Gemini API model migration (v0.2.1)
 
 Google now limits `gemini-2.5-flash-lite` and `gemini-2.5-flash` to previously active projects. FORGE AI defaults to `gemini-3.5-flash-lite` and also offers `gemini-3.8-flash`. Previous selections of 2.5 models automatically reset to the supported default. In **AI Builder → Gemini API**, click **Refresh available models** to query the models advertised to your API key, select your model, and click **Test API connection**. Model listing is not a guarantee of call eligibility or free-tier quota; testing makes a real request. See Google's official pricing and usage limits before enabling billing.
+
+
+## Studio MCP proxy version recovery (v0.2.2)
+
+If Roblox returns `Client proxy is out of date, restart to update`, FORGE AI now closes and reopens its MCP client connection. **It does not automatically retry a mutating tool** because an earlier edit may have partially succeeded. Inspect the current game state before retrying.
+
+If the problem persists, save the place, close Roblox Studio and FORGE AI, use Windows Task Manager to end lingering `StudioMCP.exe` processes after closing your other MCP clients, then reopen the latest Roblox Studio, re-enable **Assistant → Manage MCP Servers → Studio as MCP server**, reopen FORGE AI, and click Connect Roblox Studio. Verify the connection with the read-only `list_roblox_studios` tool before asking Gemini to make edits.
+
+Roblox's official documentation also recommends restarting both Studio and the MCP client after updates: https://create.roblox.com/docs/studio/mcp

@@ -8,6 +8,11 @@ const readOnly = new Set([
   'list_roblox_studios', 'get_studio_state', 'search_game_tree', 'inspect_instance',
   'script_read', 'script_search', 'script_grep', 'get_console_output', 'screen_capture'
 ]);
+function isOutdatedProxyResponse(result) {
+  if (!result?.isError) return false;
+  const message = (result.content || []).map(part => part?.text || '').join(' ');
+  return /client proxy is out of date|restart to update/i.test(message);
+}
 class StudioConnection {
   constructor(onEvent) {
     this.onEvent = onEvent;
@@ -39,6 +44,10 @@ class StudioConnection {
       return this.status;
     } catch (e) { await this.disconnect(); this.onEvent('error', `Studio connection failed: ${e.message}`); throw e; }
   }
+  async reconnect() {
+    await this.disconnect();
+    return this.connect();
+  }
   async disconnect() {
     const client = this.client;
     const transport = this.transport;
@@ -66,10 +75,19 @@ class StudioConnection {
     this.onEvent('tool', `Running ${name}`, { name, args: a });
     try {
       const result = await this.client.callTool({ name, arguments: a });
+      if (isOutdatedProxyResponse(result)) {
+        this.onEvent('error', 'Studio MCP proxy is outdated. Refreshing the MCP client connection.', { name });
+        try {
+          await this.reconnect();
+          return { isError: true, content: [{ type: 'text', text: 'Roblox Studio reported: Client proxy is out of date, restart to update. FORGE AI refreshed its MCP client connection. Do NOT assume the previous operation completed; no edit was automatically repeated. Re-inspect the place before retrying. If the error persists, close both FORGE AI and Roblox Studio, end lingering StudioMCP.exe processes, update/reopen Studio with MCP enabled, and reconnect FORGE AI.' }] };
+        } catch (error) {
+          return { isError: true, content: [{ type: 'text', text: 'Roblox Studio MCP proxy is outdated, and FORGE AI could not reconnect: ' + error.message + '. Close both FORGE AI and Roblox Studio, end lingering StudioMCP.exe processes, update/reopen Studio with MCP enabled, then reconnect FORGE AI. Do not assume an earlier edit succeeded.' }] };
+        }
+      }
       this.onEvent(result.isError ? 'error' : 'success', `${name}: ${result.isError ? 'Studio returned an error' : 'tool returned'}`, { name, result });
       return result;
     } catch (e) { this.onEvent('error', `${name}: ${e.message}`, { name }); throw e; }
     finally { this.busy = false; }
   }
 }
-module.exports = { StudioConnection };
+module.exports = { StudioConnection, isOutdatedProxyResponse };
