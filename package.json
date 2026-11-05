@@ -8,7 +8,7 @@
     "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && cross-env FORGE_DEV=1 electron .\"",
     "build": "vite build && esbuild electron/bridge-server.cjs --bundle --platform=node --format=cjs --packages=bundle --outfile=dist-electron/bridge-server.cjs",
     "start": "electron .",
-    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:win": "npm run build && electron-builder --win nsis --publish never",
     "check": "node --check electron/main.cjs && node --check electron/preload.cjs && node --check electron/studio.cjs && node --check electron/bridge-server.cjs"
   },
   "dependencies": {
