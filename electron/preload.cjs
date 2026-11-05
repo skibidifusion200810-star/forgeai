@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('forge', Object.freeze({
   saveGeminiKey: key => ipcRenderer.invoke('forge:gemini:key', key),
   removeGeminiKey: () => ipcRenderer.invoke('forge:gemini:remove-key'),
   setGeminiModel: model => ipcRenderer.invoke('forge:gemini:model', model),
+  refreshGeminiModels: () => ipcRenderer.invoke('forge:gemini:models'),
   testGemini: () => ipcRenderer.invoke('forge:gemini:test'),
   sendGemini: message => ipcRenderer.invoke('forge:gemini:send', message),
   clearGemini: () => ipcRenderer.invoke('forge:gemini:clear'),

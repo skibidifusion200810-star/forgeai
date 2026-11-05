@@ -2,7 +2,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { runTurn } = require('../electron/gemini-agent.cjs');
-const MODEL = 'gemini-2.5-flash-lite';
+const MODEL = 'gemini-3.5-flash-lite';
 const params = { model: MODEL, history: [], approve: async () => true, shouldStop: () => false };
 const makeAI = replies => ({ models: { async generateContent(input) { this.calls ||= []; this.calls.push(input); return replies.shift(); } } });
 const model = parts => ({ candidates: [{ content: { role: 'model', parts } }] });
@@ -62,4 +62,38 @@ test('Stops on invalid JSON arguments and returns actionable tool error', async 
 test('Cancellation stops before making an AI request', async () => {
   const ai = makeAI([]);
   await assert.rejects(runTurn({ ...params, ai, studio: {}, message: 'Hello', shouldStop: () => true }), /stopped/);
+});
+
+test('New installations and previously saved 2.5 model settings migrate to Gemini 3.5 Flash-Lite', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { GeminiAgent } = require('../electron/gemini-agent.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ai-model-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'gemini-settings.json'), JSON.stringify({ model: 'gemini-2.5-flash-lite' }));
+    const agent = new GeminiAgent({ userData: dir, safeStorage: {}, record: () => {} });
+    assert.equal(agent.state().model, 'gemini-3.5-flash-lite');
+    assert.deepEqual(agent.state().models, ['gemini-3.5-flash-lite', 'gemini-3.8-flash']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('Model discovery only offers supported models returned for the API key', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const { GeminiAgent } = require('../electron/gemini-agent.cjs');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-ai-discover-'));
+  try {
+    const clientFactory = async () => ({ models: { async list() {
+      return { async *[Symbol.asyncIterator]() {
+        yield { name: 'models/gemini-2.5-flash-lite' };
+        yield { name: 'models/gemini-3.5-flash-lite' };
+      } };
+    } } });
+    const agent = new GeminiAgent({ userData: dir, safeStorage: {}, record: () => {}, clientFactory });
+    agent.getKey = () => 'mock-key';
+    const state = await agent.listAvailableModels();
+    assert.deepEqual(state.models, ['gemini-3.5-flash-lite']);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

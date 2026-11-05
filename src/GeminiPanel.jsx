@@ -8,7 +8,7 @@ const EXAMPLES = [
   'Build a throwing simulator with coins, strength upgrades and a rebirth button. Make a plan, then start with the foundation.'
 ];
 function GeminiPanel({ connected, onConnect }) {
-  const [state, setState] = useState({ configured: false, model: 'gemini-2.5-flash-lite', models: [], messages: [] });
+  const [state, setState] = useState({ configured: false, model: 'gemini-3.5-flash-lite', models: [], messages: [] });
   const [message, setMessage] = useState('');
   const [key, setKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -84,7 +84,8 @@ function GeminiPanel({ connected, onConnect }) {
           <div className="field-label">YOUR GEMINI API KEY</div>
           <div className="gemini-key-row"><input type={showKey ? 'text' : 'password'} autoComplete="off" value={key} onChange={e => setKey(e.target.value)} placeholder={configured ? '•••••••••••••• saved' : 'Paste Google AI Studio key'}/><button title={showKey ? 'Hide key' : 'Show key'} onClick={() => setShowKey(!showKey)}>{showKey ? <EyeOff size={17}/> : <Eye size={17}/>}</button></div>
           <div className="gemini-setting-actions"><button className="primary" disabled={!key.trim() || settingBusy || busy} onClick={saveKey}>{settingBusy ? <Loader2 size={15} className="spin"/> : <ShieldCheck size={15}/>} Save key</button>{configured && <button className="secondary" disabled={settingBusy || busy} onClick={() => runSetting(() => window.forge.removeGeminiKey(), 'Stored key removed.')}><Trash2 size={14}/> Remove</button>}</div>
-          <div className="field-label">MODEL</div><select value={state.model} disabled={settingBusy || busy} onChange={e => runSetting(() => window.forge.setGeminiModel(e.target.value), 'Model changed; previous chat cleared.')}>{(state.models.length ? state.models : ['gemini-2.5-flash-lite', 'gemini-2.5-flash']).map(m => <option key={m} value={m}>{m}</option>)}</select>
+          <div className="field-label">MODEL</div><select value={state.model} disabled={settingBusy || busy} onChange={e => runSetting(() => window.forge.setGeminiModel(e.target.value), 'Model changed; previous chat cleared.')}>{(state.models.length ? state.models : ['gemini-3.5-flash-lite', 'gemini-3.8-flash']).map(m => <option key={m} value={m}>{m}</option>)}</select>
+          <button className="secondary gemini-test" disabled={!configured || settingBusy || busy} onClick={() => runSetting(() => window.forge.refreshGeminiModels(), 'Updated model list for your Gemini API key. Use Test API connection to confirm access.')}><RotateCcw size={15}/> Refresh available models</button>
           <button className="secondary gemini-test" disabled={!configured || settingBusy || busy} onClick={() => runSetting(() => window.forge.testGemini(), 'Gemini responded successfully.')}><RotateCcw size={15}/> Test API connection</button>
           <p className="gemini-smallprint">Gemini free tier has quotas and availability restrictions. Keep your Google AI Studio project on the free tier to avoid charges. Chat messages and relevant Studio content are sent to Google when you use this mode.</p>
         </section>

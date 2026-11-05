@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const MODELS = Object.freeze(['gemini-2.5-flash-lite', 'gemini-2.5-flash']);
+const MODELS = Object.freeze(['gemini-3.5-flash-lite', 'gemini-3.8-flash']);
 const MAX_ROUNDS = 12;
 const MAX_MESSAGE = 8000;
 const MAX_TOOL_OUTPUT = 18000;
@@ -97,6 +97,7 @@ class GeminiAgent {
     this.chatPath = path.join(userData, 'gemini-chat.json');
     this.settingsPath = path.join(userData, 'gemini-settings.json');
     this.model = MODELS[0];
+    this.availableModels = null;
     this.messages = [];
     this.history = [];
     this.running = false;
@@ -108,7 +109,27 @@ class GeminiAgent {
     } catch {}
   }
   get hasKey() { return Boolean(process.env.GEMINI_API_KEY || fs.existsSync(this.secretPath)); }
-  state() { return { configured: this.hasKey, model: this.model, models: MODELS, running: this.running, messages: this.messages }; }
+  state() { return { configured: this.hasKey, model: this.model, models: this.availableModels || MODELS, running: this.running, messages: this.messages }; }
+  async listAvailableModels() {
+    if (this.running) throw new Error('Finish the active request before refreshing the model list.');
+    const client = await this.getClient();
+    // API model listing is credential-specific, but does not guarantee quota or eligibility.
+    const pager = await client.models.list({ config: { pageSize: 100 } });
+    const found = new Set();
+    for await (const item of pager) {
+      const id = String(item.name || '').replace(/^models\//, '');
+      if (MODELS.includes(id)) found.add(id);
+      if (found.size === MODELS.length) break;
+    }
+    if (!found.size) throw new Error('The API returned no supported current Gemini Flash models for this key. Verify your Google AI Studio project and API access.');
+    this.availableModels = MODELS.filter(id => found.has(id));
+    if (!this.availableModels.includes(this.model)) {
+      this.model = this.availableModels[0];
+      fs.writeFileSync(this.settingsPath, JSON.stringify({ model: this.model }), { mode: 0o600 });
+      this.clear();
+    }
+    return this.state();
+  }
   setKey(key) {
     if (typeof key !== 'string' || key.trim().length < 15 || key.length > 512) throw new Error('Enter a valid API key from Google AI Studio.');
     if (!this.safeStorage.isEncryptionAvailable()) throw new Error('Windows secure key encryption is unavailable. Key was not saved.');
@@ -137,10 +158,19 @@ class GeminiAgent {
     const { GoogleGenAI } = await import('@google/genai');
     return new GoogleGenAI({ apiKey: key });
   }
+  explainModelError(error) {
+    const message = String(error?.message || error);
+    if (/no longer available|not found|\b404\b/i.test(message)) {
+      return new Error('Gemini model "' + this.model + '" is unavailable to this API key. Open AI Builder → Refresh available models, select Gemini 3.5 Flash-Lite, and Test API connection. Details: ' + message.slice(0, 500));
+    }
+    return error;
+  }
   async test() {
     if (this.running) throw new Error('Finish the current request first.');
     const client = await this.getClient();
-    const result = await client.models.generateContent({ model: this.model, contents: 'Reply with the single word OK.' });
+    let result;
+    try { result = await client.models.generateContent({ model: this.model, contents: 'Reply with the single word OK.' }); }
+    catch (e) { throw this.explainModelError(e); }
     if (!result.text) throw new Error('Gemini did not return a response.');
     return { response: result.text.trim().slice(0, 150), model: this.model };
   }
@@ -157,7 +187,7 @@ class GeminiAgent {
     const ai = await this.getClient().catch(e => { this.running = false; throw e; });
     emit({ type: 'progress', message: 'Starting Gemini…' });
     try {
-      const response = await runTurn({ ai, studio: this.studio, model: this.model, history: this.history, message, approve: this.approve, emit, shouldStop: () => this.stopped });
+      const response = await runTurn({ ai, studio: this.studio, model: this.model, history: this.history, message, approve: this.approve, emit, shouldStop: () => this.stopped }).catch(error => { throw this.explainModelError(error); });
       this.history = response.history;
       // Do not retain huge tool responses indefinitely; a new project conversation can be started with Clear.
       if (this.history.length > 80) this.history = this.history.slice(-50);

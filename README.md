@@ -129,3 +129,8 @@ FORGE AI now includes a **real in-app Google Gemini chat**. It does not require 
 **Implementation:** `electron/gemini-agent.cjs` uses the official `@google/genai` SDK. Its tool calling loop sends both user/model turns and actual Studio tool results back to Gemini. `electron/studio.cjs` remains the single Studio MCP gateway for tool discovery, approval, and audit logging. No unverified end-to-end Studio changes are claimed; these require Roblox Studio running on Windows.
 
 **Development tests:** `npm test` runs mocked agent-loop tests (tool discovery, execution, denial, invalid arguments, cancellation). `npm run check` validates Electron-side Node syntax. The GitHub Actions Windows build also runs both checks and creates the installer.
+
+
+## Gemini API model migration (v0.2.1)
+
+Google now limits `gemini-2.5-flash-lite` and `gemini-2.5-flash` to previously active projects. FORGE AI defaults to `gemini-3.5-flash-lite` and also offers `gemini-3.8-flash`. Previous selections of 2.5 models automatically reset to the supported default. In **AI Builder → Gemini API**, click **Refresh available models** to query the models advertised to your API key, select your model, and click **Test API connection**. Model listing is not a guarantee of call eligibility or free-tier quota; testing makes a real request. See Google's official pricing and usage limits before enabling billing.

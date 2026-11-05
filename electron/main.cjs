@@ -173,6 +173,7 @@ app.whenReady().then(() => {
   ipcMain.handle('forge:gemini:key', (_, key) => wrap(() => gemini.setKey(key)));
   ipcMain.handle('forge:gemini:remove-key', () => wrap(() => gemini.removeKey()));
   ipcMain.handle('forge:gemini:model', (_, model) => wrap(() => gemini.setModel(model)));
+  ipcMain.handle('forge:gemini:models', () => wrap(() => gemini.listAvailableModels()));
   ipcMain.handle('forge:gemini:test', () => wrap(() => gemini.test()));
   ipcMain.handle('forge:gemini:send', (_, message) => wrap(() => gemini.send(message)));
   ipcMain.handle('forge:gemini:clear', () => wrap(() => gemini.clear()));
