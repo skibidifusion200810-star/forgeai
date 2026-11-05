@@ -6,6 +6,33 @@ const http = require('node:http');
 const { StudioConnection } = require('./studio.cjs');
 const { GeminiAgent } = require('./gemini-agent.cjs');
 
+
+// Startup diagnostics are written to the user's local FORGE AI data directory,
+// without API keys or other secrets. They help identify an app that exits silently.
+function startupLog(message) {
+  try {
+    const directory = app.getPath('userData');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.appendFileSync(path.join(directory, 'startup.log'), `[${new Date().toISOString()}] ${String(message)}\n`);
+  } catch (_) { /* diagnostic logging must never prevent startup */ }
+}
+function startupFailure(error) {
+  const message = error && (error.stack || error.message) || String(error);
+  startupLog('STARTUP FAILURE: ' + message);
+  if (process.env.FORGE_SMOKE_FILE) {
+    try { fs.writeFileSync(process.env.FORGE_SMOKE_FILE, JSON.stringify({ status: 'error', message })); } catch (_) {}
+  } else {
+    try { dialog.showErrorBox('FORGE AI could not start', message + '\n\nDiagnostic log: %APPDATA%\\forge-ai-roblox\\startup.log'); } catch (_) {}
+  }
+}
+process.on('uncaughtException', error => {
+  startupFailure(error);
+  app.exit(1);
+});
+process.on('unhandledRejection', reason => {
+  startupLog('Unhandled rejection: ' + (reason?.stack || String(reason)));
+});
+
 const PORT = 43157;
 let win;
 let logs = [];
@@ -94,10 +121,31 @@ function createWindow() {
   });
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', e => e.preventDefault());
+  win.webContents.on('preload-error', (_event, preloadPath, error) => startupLog('Preload error: ' + preloadPath + ' ' + error.message));
+  win.webContents.on('render-process-gone', (_event, details) => startupLog('Renderer gone: ' + JSON.stringify(details)));
+  win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame) startupFailure(new Error('Window load failed (' + code + '): ' + description + ' ' + url));
+  });
+  win.webContents.on('did-finish-load', () => {
+    startupLog('Window HTML loaded');
+    if (process.env.FORGE_SMOKE_FILE) {
+      setTimeout(async () => {
+        try {
+          const valid = await win.webContents.executeJavaScript("!!window.forge && !!document.querySelector('.shell')");
+          if (!valid) throw new Error('Renderer did not expose FORGE AI dashboard');
+          fs.writeFileSync(process.env.FORGE_SMOKE_FILE, JSON.stringify({ status: 'ok', window: true, renderer: true }));
+          startupLog('Packaged startup smoke test passed');
+        } catch (error) {
+          startupFailure(error);
+        } finally { app.quit(); }
+      }, 1800);
+    }
+  });
   if (process.env.FORGE_DEV === '1') win.loadURL('http://127.0.0.1:5173');
   else win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 app.whenReady().then(() => {
+  startupLog('FORGE AI main process starting; packaged=' + app.isPackaged);
   const dir = app.getPath('userData');
   fs.mkdirSync(dir, { recursive: true });
   logPath = path.join(dir, 'activity.json');
@@ -129,6 +177,6 @@ app.whenReady().then(() => {
   ipcMain.handle('forge:gemini:send', (_, message) => wrap(() => gemini.send(message)));
   ipcMain.handle('forge:gemini:clear', () => wrap(() => gemini.clear()));
   ipcMain.handle('forge:gemini:stop', () => wrap(() => gemini.stop()));
-});
+}).catch(error => { startupFailure(error); app.exit(1); });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { studio.disconnect().catch(() => {}); if (server) server.close(); });

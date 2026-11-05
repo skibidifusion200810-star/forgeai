@@ -18,6 +18,22 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run dist:win
+      - name: Smoke-test the packaged Windows desktop app
+        shell: pwsh
+        run: |
+          $env:FORGE_SMOKE_FILE = Join-Path $pwd 'forge-smoke-result.json'
+          $exe = Join-Path $pwd 'release/win-unpacked/FORGE AI.exe'
+          if (!(Test-Path $exe)) { throw "Packaged executable not found: $exe" }
+          $proc = Start-Process -FilePath $exe -ArgumentList '--disable-gpu' -PassThru
+          try {
+            Wait-Process -Id $proc.Id -Timeout 45 -ErrorAction Stop
+          } catch {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+          if (!(Test-Path $env:FORGE_SMOKE_FILE)) { throw 'FORGE AI did not produce a startup result; the installed app may exit before its window loads' }
+          $report = Get-Content $env:FORGE_SMOKE_FILE -Raw | ConvertFrom-Json
+          Write-Host ($report | ConvertTo-Json)
+          if ($report.status -ne 'ok') { throw "App startup failed: $($report.message)" }
       - uses: actions/upload-artifact@v4
         with:
           name: forge-ai-windows-installer
