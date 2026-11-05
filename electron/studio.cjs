@@ -46,7 +46,13 @@ class StudioConnection {
       const sessionResult = await client.callTool({ name: list.name, arguments: {} });
       if (sessionResult?.isError) throw new Error('Could not discover the open Studio place: ' + studioErrorText(sessionResult));
       const sessions = parseStudios(sessionResult);
-      if (!sessions.length) throw new Error('MCP proxy is running but no Roblox Studio place is bound. Open a place, check the green connected-client indicator in Assistant → Manage MCP Servers, then restart FORGE AI and try again.');
+      if (!sessions.length) {
+        // Tool discovery succeeding doesn't mean the Studio place is attached.
+        // Include the short raw response for diagnosis rather than claiming
+        // an empty session list when Roblox changed its response shape.
+        const raw = studioErrorText(sessionResult).slice(0, 1400);
+        throw new Error('MCP proxy responded but no Studio session could be identified. Open a place, then check the green connected-client indicator in Assistant → Manage MCP Servers. list_roblox_studios raw response: ' + raw);
+      }
       this.sessions = sessions;
       if (sessions.length === 1) {
         this.studioId = sessions[0].studio_id;
