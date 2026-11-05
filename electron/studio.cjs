@@ -3,6 +3,7 @@ const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const { parseStudios, studioErrorText } = require('./studio-sessions.cjs');
 
 const readOnly = new Set([
   'list_roblox_studios', 'get_studio_state', 'search_game_tree', 'inspect_instance',
@@ -22,8 +23,9 @@ class StudioConnection {
     this.tools = [];
     this.studioId = null;
     this.busy = false;
+    this.sessions = [];
   }
-  get status() { return { state: this.state, studioId: this.studioId, toolCount: this.tools.length, tools: this.tools.map(t => t.name) }; }
+  get status() { return { state: this.state, studioId: this.studioId, toolCount: this.tools.length, sessions: this.sessions, tools: this.tools.map(t => t.name) }; }
   async connect() {
     if (this.state === 'connected' || this.state === 'connecting') return this.status;
     if (process.platform !== 'win32') throw new Error('This build currently supports the Windows Roblox Studio MCP launcher only.');
@@ -38,8 +40,24 @@ class StudioConnection {
       await client.connect(transport);
       const { tools } = await client.listTools();
       this.tools = tools;
+      // A successful MCP handshake only proves the proxy works, not Studio.
+      const list = tools.find(t => t.name === 'list_roblox_studios');
+      if (!list) throw new Error('Studio MCP proxy does not expose list_roblox_studios. Update Roblox Studio and restart FORGE AI.');
+      const sessionResult = await client.callTool({ name: list.name, arguments: {} });
+      if (sessionResult?.isError) throw new Error('Could not discover the open Studio place: ' + studioErrorText(sessionResult));
+      const sessions = parseStudios(sessionResult);
+      if (!sessions.length) throw new Error('MCP proxy is running but no Roblox Studio place is bound. Open a place, check the green connected-client indicator in Assistant → Manage MCP Servers, then restart FORGE AI and try again.');
+      this.sessions = sessions;
+      if (sessions.length === 1) {
+        this.studioId = sessions[0].studio_id;
+        const stateTool = tools.find(t => t.name === 'get_studio_state');
+        if (stateTool) {
+          const stateResult = await client.callTool({ name: stateTool.name, arguments: { studio_id: this.studioId } });
+          if (stateResult?.isError) throw new Error('Found a Studio place but the Studio state check failed: ' + studioErrorText(stateResult));
+        }
+      }
       this.state = 'connected';
-      transport.onclose = () => { if (this.transport === transport) { this.client = null; this.transport = null; this.tools = []; this.studioId = null; this.state = 'disconnected'; this.onEvent('studio', 'Studio MCP disconnected'); } };
+      transport.onclose = () => { if (this.transport === transport) { this.client = null; this.transport = null; this.tools = []; this.studioId = null; this.sessions = []; this.state = 'disconnected'; this.onEvent('studio', 'Studio MCP disconnected'); } };
       this.onEvent('studio', `Connected — ${tools.length} real MCP tools discovered`);
       return this.status;
     } catch (e) { await this.disconnect(); this.onEvent('error', `Studio connection failed: ${e.message}`); throw e; }
@@ -51,7 +69,7 @@ class StudioConnection {
   async disconnect() {
     const client = this.client;
     const transport = this.transport;
-    this.client = null; this.transport = null; this.tools = []; this.studioId = null; this.state = 'disconnected';
+    this.client = null; this.transport = null; this.tools = []; this.studioId = null; this.sessions = []; this.state = 'disconnected';
     try { if (client) await client.close(); else if (transport) await transport.close(); } catch (_) { /* already closed */ }
     return this.status;
   }
@@ -61,7 +79,13 @@ class StudioConnection {
     this.tools = tools;
     return tools;
   }
-  selectStudio(id) { this.studioId = String(id || '') || null; this.onEvent('studio', 'Studio selection updated'); return this.status; }
+  selectStudio(id) {
+    const selected = String(id || '').trim();
+    if (selected && this.sessions.length && !this.sessions.some(s => s.studio_id === selected)) throw new Error('That Studio instance ID is not in the connected session list. Refresh the connection.');
+    this.studioId = selected || null;
+    this.onEvent('studio', 'Studio selection updated');
+    return this.status;
+  }
   async execute(name, args = {}, approve = async () => false) {
     if (!this.client || this.state !== 'connected') throw new Error('Roblox Studio is not connected');
     if (this.busy) throw new Error('Another Studio tool call is still running; try again when it finishes');
@@ -69,7 +93,11 @@ class StudioConnection {
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Tool arguments must be a JSON object');
     const tool = this.tools.find(t => t.name === name);
     const a = { ...args };
-    if (this.studioId && tool.inputSchema?.properties?.studio_id && !a.studio_id) a.studio_id = this.studioId;
+    if (name !== 'list_roblox_studios' && tool.inputSchema?.properties?.studio_id) {
+      if (!a.studio_id && this.studioId) a.studio_id = this.studioId;
+      if (!a.studio_id) throw new Error('No Studio instance selected. Use list_roblox_studios to find the open game and select its studio_id in Studio tools.');
+      if (this.sessions.length && !this.sessions.some(s => s.studio_id === a.studio_id)) throw new Error('Studio instance ID is not among active sessions. Reconnect Studio to refresh the list.');
+    }
     if (!readOnly.has(name) && !(await approve(name, a))) throw new Error('Tool execution denied by user');
     this.busy = true;
     this.onEvent('tool', `Running ${name}`, { name, args: a });
@@ -86,7 +114,19 @@ class StudioConnection {
       }
       this.onEvent(result.isError ? 'error' : 'success', `${name}: ${result.isError ? 'Studio returned an error' : 'tool returned'}`, { name, result });
       return result;
-    } catch (e) { this.onEvent('error', `${name}: ${e.message}`, { name }); throw e; }
+    } catch (e) {
+      if (/client proxy is out of date|restart to update/i.test(String(e.message || e))) {
+        this.onEvent('error', 'Studio MCP returned a stale-proxy exception. Reopening the MCP connection.', { name });
+        try {
+          await this.reconnect();
+          return { isError: true, content: [{ type: 'text', text: 'MCP error -32603: Client proxy was out of date. FORGE AI reconnected to the Studio session. This action was NOT repeated; inspect your game before retrying.' }] };
+        } catch (recoveryError) {
+          return { isError: true, content: [{ type: 'text', text: 'MCP error -32603: Studio proxy is outdated, and reopening the connection failed: ' + recoveryError.message + '. Fully close Studio and FORGE AI, stop leftover StudioMCP.exe processes, reopen the updated Studio with a place loaded, then reconnect.' }] };
+        }
+      }
+      this.onEvent('error', `${name}: ${e.message}`, { name });
+      throw e;
+    }
     finally { this.busy = false; }
   }
 }
