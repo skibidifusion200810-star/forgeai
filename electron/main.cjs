@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } = require('electron');
 const { randomBytes } = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
 const { StudioConnection } = require('./studio.cjs');
+const { GeminiAgent } = require('./gemini-agent.cjs');
 
 const PORT = 43157;
 let win;
@@ -12,6 +13,7 @@ let authFile;
 let token;
 let logPath;
 let server;
+let gemini;
 const send = () => { if (win && !win.isDestroyed()) win.webContents.send('forge:change', { status: studio.status, logs }); };
 const record = (kind, message, details) => {
   const cleanDetails = details == null ? undefined : JSON.stringify(details).slice(0, 7000);
@@ -105,6 +107,10 @@ app.whenReady().then(() => {
   token = randomBytes(32).toString('hex');
   fs.writeFileSync(authFile, JSON.stringify({ token, port: PORT, created: Date.now() }), { mode: 0o600 });
   if (process.platform !== 'win32') record('system', 'Windows Studio MCP launcher required for connection.');
+  gemini = new GeminiAgent({
+    studio, approve, userData: dir, safeStorage, record,
+    onEvent: event => { if (win && !win.isDestroyed()) win.webContents.send('forge:gemini:event', event); }
+  });
   listenBridge(); createWindow();
   ipcMain.handle('forge:state', () => ({ ok: true, data: { status: studio.status, logs, bridgePort: PORT } }));
   ipcMain.handle('forge:connect', () => wrap(() => studio.connect()));
@@ -114,6 +120,15 @@ app.whenReady().then(() => {
   ipcMain.handle('forge:execute', (_, name, args) => wrap(() => studio.execute(name, args, approve)));
   ipcMain.handle('forge:install-claude', () => wrap(() => installClaude()));
   ipcMain.handle('forge:open-claude', () => wrap(() => shell.openExternal('https://claude.ai/')));
+  ipcMain.handle('forge:open-gemini-keys', () => wrap(() => shell.openExternal('https://aistudio.google.com/api-keys')));
+  ipcMain.handle('forge:gemini:state', () => wrap(() => gemini.state()));
+  ipcMain.handle('forge:gemini:key', (_, key) => wrap(() => gemini.setKey(key)));
+  ipcMain.handle('forge:gemini:remove-key', () => wrap(() => gemini.removeKey()));
+  ipcMain.handle('forge:gemini:model', (_, model) => wrap(() => gemini.setModel(model)));
+  ipcMain.handle('forge:gemini:test', () => wrap(() => gemini.test()));
+  ipcMain.handle('forge:gemini:send', (_, message) => wrap(() => gemini.send(message)));
+  ipcMain.handle('forge:gemini:clear', () => wrap(() => gemini.clear()));
+  ipcMain.handle('forge:gemini:stop', () => wrap(() => gemini.stop()));
 });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { studio.disconnect().catch(() => {}); if (server) server.close(); });

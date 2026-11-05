@@ -109,3 +109,23 @@ The app never sends your game to a separate hosted FORGE AI service. Claude Desk
 - Optional supported direct AI-provider integrations (not included in current MVP)
 
 Licensed under MIT — see LICENSE.
+
+## NEW — Built-in Gemini AI Builder (v0.2)
+
+FORGE AI now includes a **real in-app Google Gemini chat**. It does not require Anthropic, Claude Desktop, or Replit. The Claude Desktop bridge remains optional for people who already use it.
+
+1. Install/run FORGE AI on Windows and open **AI Builder (Gemini)** from the sidebar.
+2. Create a fresh **Gemini Developer API** key from [Google AI Studio](https://aistudio.google.com/api-keys). **The previously shared `AQ.` key is not a confirmed Gemini key.** Never paste a key into GitHub or chat.
+3. Paste your key into the app's **Gemini API** settings and click **Save key**. The desktop app encrypts the key using Electron `safeStorage` and Windows encryption; the renderer only sees a `configured` flag when loading settings. You can remove the key at any time.
+4. Select `gemini-2.5-flash-lite` (default) or `gemini-2.5-flash` and click **Test API connection**. This makes a real API call and consumes a small amount of your allowance.
+5. Open your Roblox place in Studio; enable **Assistant → Manage MCP Servers → Studio as MCP server**. In FORGE AI click **Connect Roblox Studio**.
+6. In **AI Builder** ask something simple such as: *"Inspect my current Roblox game, then create one anchored blue part and verify it exists."* The app uses Gemini **function calling** to discover official Studio MCP tools and execute actual calls. Every mutating operation still requires your explicit Windows approval.
+7. Read the output in chat and check **Activity log** for real tool results. Use **New chat** to reset conversation context and **Stop** to stop additional AI tool calls after any operation already running finishes.
+
+**Free-tier limits:** A Gemini Developer API free tier is available for some models, countries, and eligible Google projects. Request limits and privacy rules apply; there is no guarantee of unrestricted free requests. **Use a Google AI Studio project without billing enabled** if you require zero charges. FORGE AI does not activate paid API services for you. See [Google's pricing](https://ai.google.dev/gemini-api/docs/pricing).
+
+**Privacy:** Messages, relevant Roblox project data, and tool results are sent to Google when using Gemini. Chat messages are stored locally in Electron's user data folder; API keys are stored in a separate encrypted file and never committed to GitHub. In Gemini free tier, Google may use prompts to improve products, as documented in the pricing and data terms.
+
+**Implementation:** `electron/gemini-agent.cjs` uses the official `@google/genai` SDK. Its tool calling loop sends both user/model turns and actual Studio tool results back to Gemini. `electron/studio.cjs` remains the single Studio MCP gateway for tool discovery, approval, and audit logging. No unverified end-to-end Studio changes are claimed; these require Roblox Studio running on Windows.
+
+**Development tests:** `npm test` runs mocked agent-loop tests (tool discovery, execution, denial, invalid arguments, cancellation). `npm run check` validates Electron-side Node syntax. The GitHub Actions Windows build also runs both checks and creates the installer.
